@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -172,3 +173,18 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+=======
+/data/joern/**
+/data/processed/**
+/data/repo/**
+/data/workspace/**
+.idea
+.venv
+.cache
+out
+**/workspace
+**/.cache
+__pycache__
+
+
+>>>>>>> 969e3ee (init)
