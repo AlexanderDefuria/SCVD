@@ -5,8 +5,8 @@ from pytorch_lightning import Trainer, seed_everything
 
 from src.utils import download, interact
 from src.preprocess import preprocess
-from src.dataset import GraphDataModule
-from src.model import GraphModel
+from src.dataset import FunctionSourceCodeDataModule, GraphDataModule
+from src.model import CodeBERTModel, GraphModel
 
 if __name__ == "__main__":
     seed_everything(4343, workers=True)
@@ -18,35 +18,38 @@ if __name__ == "__main__":
         default="ffmpeg",
         help="Project to use for training/testing.",
     )
-    parser.add_argument(
+    parser.add_argument(  # TODO
         "--scope",
         type=str,
         choices=["all", "added", "modified", "deleted"],
         default="all",
         help="Scope of the project.",
     )
+    parser.add_argument(  # TODO
+        "--dataset",
+        type=str,
+        choices=["all", "cpg", "func_sc", "diff_sc"],
+        default="all",
+        help="Dataset to use for training/testing.",
+    )
 
     project = parser.parse_args().project
     scope = parser.parse_args().scope
 
     download()
-    commit_list: List[Tuple[str, str]] = preprocess(scope=scope, n=20)
-    data_module = GraphDataModule(project=project, batch_size=10)
-    data_module.prepare_data()
-    data_module.setup(stage="fit")
+    commit_list: List[Tuple[str, str]] = preprocess(n=20)
+    data_module = FunctionSourceCodeDataModule(project=project, batch_size=10)
 
-    print("\n\nTrain")
-    for batch in data_module.train_dataloader():
-        print(batch)
-
-    print("\n\nVal")
-    for batch in data_module.val_dataloader():
-        print(batch)
-
-    print("\n\nTest")
-    data_module.setup(stage="test")
-    for batch in data_module.test_dataloader():
-        print(batch)
+    trainer = Trainer(
+        fast_dev_run=False,
+        accelerator="auto",
+        devices=1,
+        max_epochs=1,
+    )
+    trainer.fit(
+        model=CodeBERTModel(),
+        datamodule=data_module,
+    )
 
     # TODO
     #  BATCHING ISSUE

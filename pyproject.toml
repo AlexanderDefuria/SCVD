@@ -17,4 +17,21 @@ dependencies = [
     "pytorch-lightning>=2.5.1.post0",
     "torch>=2.7.0",
     "torch-geometric>=2.6.1",
+    "transformers>=4.52.0",
 ]
+
+[dependency-groups]
+dev = [
+    "autoread-dotenv>=1.0.3",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+
+[tool.poetry.plugins]
+[tool.poetry.plugins."sitecustomize"]
+autoread_dotenv = "autoread_dotenv:entrypoint"

@@ -4,45 +4,14 @@ from typing import Dict, List, Optional, Tuple
 import pygit2 as git
 import polars as pl
 from pyjoern import parse_source
-from src.utils import interact
+from src.utils import interact, ignore_file, get_diff, checkout_commit
 import pickle
 import os
 
-VERBOSE = " > /dev/null 2>&1"
 COMMIT_CPGS = Path("data/commit_cpgs")
 COMMIT_DIFF_SC = Path("data/commit_diff_sc")
 COMMIT_FUNCTION_SC = Path("data/commit_function_sc")
 TEST = True
-
-
-def checkout_commit(commit: str, project_dir: Path, before: bool = True) -> None:
-    """
-    Checkout the commit using git
-    git -C {project_dir} checkout {commit}
-    NOTE: This checks out the predecessor commit to get the BEFORE by default
-    """
-    os.system(f"git -C {project_dir} checkout -f {commit}{'^' if before else ''} {VERBOSE}")
-    # interact(locals())
-
-
-def ignore_file(file: Path) -> bool:
-    """
-    Ignore the file if it is not a C/C++ file
-    TRUE indicates we should ignore the file
-    """
-    # TODO Update the filter based on ICVul Extension Filter.
-    filename = file.name
-    if not (filename.endswith(".c") or filename.endswith(".cpp") or filename.endswith(".h")):
-        print(f"Ignoring file: {filename}")
-        return True
-    return False
-
-
-def get_diff(commit: str, project_dir: Path) -> git.Diff:
-    repo = git.init_repository(project_dir)
-    diff = repo.diff(commit + "^", commit, context_lines=0, interhunk_lines=0)
-    assert isinstance(diff, git.Diff)
-    return diff
 
 
 def get_commit_scope(diff: git.Diff, project_name) -> Tuple[set, dict]:
@@ -139,6 +108,7 @@ def get_commit_functions_sc(commit: str, project_dir: Path) -> List[Dict]:
                     source_code = f.read()
                     # Get the lines of code in the function
                     lines_of_code = source_code.splitlines()[function.start_line - 1 : function.end_line]
+                    lines
                     functions.append(
                         {
                             "name": function_name,
@@ -155,26 +125,28 @@ def get_commit_functions_sc(commit: str, project_dir: Path) -> List[Dict]:
 def get_commit_lines_sc(commit: str, project_dir: Path) -> List[Dict]:
     project_name = project_dir.name
     diff = get_diff(commit, project_dir)
+    files, lines = get_commit_scope(diff, project_name)
     commits = []
 
-    # Get the files that are changed in the commit
-    # Filter out non C/C++ files so we can parse everything.
-    for obj in diff.deltas:
-        obj: git.DiffDelta = obj
-        file = Path(__file__).parent.parent / "data" / "repo" / project_name / obj.old_file.path
-        if not ignore_file(file) and file.exists():
-            with open(file, "r") as f:
-                source_code = f.read()
-                # Get the lines of code in the file
-                lines_of_code = source_code.splitlines()
-                for line in lines_of_code:
-                    commits.append(
-                        {
-                            "commit": commit,
-                            "file": file,
-                            "line": line,
-                        }
-                    )
+    # Get the changed lines from the old file.
+    for file in files:
+        line_numbers = lines[file]
+        source_code = ""
+        with open(project_dir / file, "r") as f:
+            source_code = f.read()
+            # Get the lines of code in the function
+            lines_of_code = source_code.splitlines()
+            # Get the lines that are changed in the commit
+            lines[file] = [lines_of_code[line - 1] for line in line_numbers]
+
+        commits.append(
+            {
+                "file": file,
+                "commit": commit,
+                "lines_of_code": lines[file],
+            }
+     )
+
 
     return commits
 
@@ -207,7 +179,7 @@ def get_data(project: str) -> pl.DataFrame:
     return pl.read_csv(f"data/{project}.csv")
 
 
-def preprocess(scope: str, n: Optional[int] = None) -> List[Tuple[str, str]]:
+def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
     validate_structure()
     project = "ffmpeg"
     devign = get_data(project)
@@ -243,10 +215,6 @@ def preprocess(scope: str, n: Optional[int] = None) -> List[Tuple[str, str]]:
 
             save_target(data_dir / name, target_results)
             processed_commits.append((target_results, commit))
-            continue
-            print(f"Error processing {commit} {label}: {e}")
-            with open("data/errors.txt", "a") as f:  # Save the error to a file
-                f.write(f"{commit} {label}: {e}\n")
 
 
     return processed_commits

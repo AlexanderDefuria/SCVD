@@ -21,10 +21,6 @@ data/errors.txt
 
 
 
-
-
-
-
 # DEFAULT PYTHION GITIGNORE
 # Byte-compiled / optimized / DLL files
 __pycache__/
