@@ -1,0 +1,20 @@
+[project]
+name = "scvd"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "black>=25.1.0",
+    "cpgqls-client>=0.0.9",
+    "lightning[extra]>=2.5.1.post0",
+    "networkx>=3.4.2",
+    "numpy>=2.2.5",
+    "polars>=1.29.0",
+    "pygit2>=1.18.0",
+    "pyjoern>=4.0.150.2",
+    "pyright>=1.1.400",
+    "pytorch-lightning>=2.5.1.post0",
+    "torch>=2.7.0",
+    "torch-geometric>=2.6.1",
+]

@@ -2,13 +2,20 @@
 /data/processed/**
 /data/repo/**
 /data/workspace/**
+/data/commit**
+
 .idea
 .venv
 .cache
+**/*.odb
 out
 **/workspace
 **/.cache
 __pycache__
+data/errors.txt
+
+**/lightning_logs
+**/lightning_logs/
 
 !**.gitkeep
 
