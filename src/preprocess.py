@@ -5,6 +5,7 @@ import pygit2 as git
 import polars as pl
 from pyjoern import parse_source
 from src.utils import interact, ignore_file, get_diff, checkout_commit
+from networkx.drawing.nx_pydot import write_dot
 import pickle
 import os
 
@@ -108,7 +109,6 @@ def get_commit_functions_sc(commit: str, project_dir: Path) -> List[Dict]:
                     source_code = f.read()
                     # Get the lines of code in the function
                     lines_of_code = source_code.splitlines()[function.start_line - 1 : function.end_line]
-                    lines
                     functions.append(
                         {
                             "name": function_name,
@@ -170,6 +170,7 @@ def validate_structure() -> None:
     assert Path("data/ffmpeg.csv").exists(), "ffmpeg.csv file does not exist"
     assert Path("data/qemu.csv").exists(), "qemu.csv file does not exist"
     os.makedirs("data/.cache", exist_ok=True)
+    os.makedirs("data/.cache/figures", exist_ok=True)
     os.makedirs(COMMIT_CPGS, exist_ok=True)
     os.makedirs(COMMIT_DIFF_SC, exist_ok=True)
     os.makedirs(COMMIT_FUNCTION_SC, exist_ok=True)
@@ -183,7 +184,7 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
     validate_structure()
     project = "ffmpeg"
     devign = get_data(project)
-    devign = devign.sample(fraction=1.0, seed=42)
+    devign = devign.sample(fraction=1.0, seed=42, shuffle=True)
     data_dir = Path(__file__).parent.parent / "data"
     project_dir = data_dir / f"repo/{project}"
     n = n if n is not None else len(devign)
@@ -210,9 +211,9 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
             if len(target_results) == 0:
                 os.system(f"touch {data_dir / skip_name}")
                 continue
+
             # TODO Ensure that we leave with the same set of commits for each process.
             # currently not all the same commits are skipped.
-
             save_target(data_dir / name, target_results)
             processed_commits.append((target_results, commit))
 

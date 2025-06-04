@@ -7,6 +7,7 @@ from src.utils import download, interact
 from src.preprocess import preprocess
 from src.dataset import FunctionSourceCodeDataModule, GraphDataModule
 from src.model import CodeBERTModel, GraphModel
+from src.graphml import NodeId, Abstraction, Mappings
 
 if __name__ == "__main__":
     seed_everything(4343, workers=True)
@@ -18,14 +19,7 @@ if __name__ == "__main__":
         default="ffmpeg",
         help="Project to use for training/testing.",
     )
-    parser.add_argument(  # TODO
-        "--scope",
-        type=str,
-        choices=["all", "added", "modified", "deleted"],
-        default="all",
-        help="Scope of the project.",
-    )
-    parser.add_argument(  # TODO
+    parser.add_argument(  # TODO implement this.
         "--dataset",
         type=str,
         choices=["all", "cpg", "func_sc", "diff_sc"],
@@ -34,19 +28,23 @@ if __name__ == "__main__":
     )
 
     project = parser.parse_args().project
-    scope = parser.parse_args().scope
 
     download()
-    commit_list: List[Tuple[str, str]] = preprocess(n=20)
-    data_module = FunctionSourceCodeDataModule(project=project, batch_size=10)
+    commit_list: List[Tuple[str, str]] = preprocess(n=10)
+    data_module = GraphDataModule(project=project, batch_size=10)
+    # data_module = FunctionSourceCodeDataModule(project=project, batch_size=10)
 
     trainer = Trainer(
         fast_dev_run=False,
-        accelerator="auto",
         devices=1,
-        max_epochs=1,
+        max_epochs=20,
+        log_every_n_steps=1,
     )
     trainer.fit(
+        model=CodeBERTModel(),
+        datamodule=data_module,
+    )
+    trainer.test(
         model=CodeBERTModel(),
         datamodule=data_module,
     )

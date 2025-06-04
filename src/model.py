@@ -1,3 +1,5 @@
+from typing import Any
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, ReLU, Dropout, Sequential, BatchNorm1d
@@ -135,7 +137,10 @@ class GraphModel(pl.LightningModule):
 
 
 class CodeBERTModel(pl.LightningModule):
-    """CodeBERT model for source code based vulnerability detection classification."""
+    # TODO Change CodeBERT to more SOTA model...
+    """
+    CodeBERT model for source code based vulnerability detection classification.
+    """
 
     def __init__(self, lr: float = 2e-5, num_labels: int = 2):
         super(CodeBERTModel, self).__init__()
@@ -161,5 +166,20 @@ class CodeBERTModel(pl.LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        input_ids = batch["input_ids"].to(device="cuda")
+        attention_mask = batch["attention_mask"].to(device="cuda")
+        labels = batch["label"].to(device="cuda")
+        outputs = self(input_ids, attention_mask)
+        loss = F.cross_entropy(outputs, labels)
+        self.log("val_loss", loss, prog_bar=True)
+        return loss
 
-    
+    def test_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
+        input_ids = args[0]["input_ids"].to(device="cuda")
+        attention_mask = args[0]["attention_mask"].to(device="cuda")
+        labels = args[0]["label"].to(device="cuda")
+        outputs = self(input_ids, attention_mask)
+        loss = F.cross_entropy(outputs, labels)
+        self.log("test_loss", loss, prog_bar=True)
+        return loss

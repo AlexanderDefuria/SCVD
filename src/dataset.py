@@ -9,18 +9,17 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from torch_geometric.loader import DataLoader as TorchGraphDataLoader
 from torch.utils.data import DataLoader, Dataset as TorchDataset, random_split
 from pytorch_lightning import LightningDataModule
+from torch_geometric.utils import from_networkx
 from torch_geometric.data.data import BaseData
 from networkx import DiGraph
 from pathlib import Path
-from torch import Tensor
-from typing import List
+from typing import Any, Dict, List, Set
 import pickle
 import torch
 import glob
 import abc
 import os
 
-from torch_geometric.utils import from_networkx
 
 from src.preprocess import get_data
 from src.utils import interact
@@ -65,6 +64,10 @@ class VulnerabilityDataset(abc.ABC):
 
 
 class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
+    """
+    Graph Dataset for loading the commit graphs. Note this is not for the RL portion of this project,
+    simply for the graph-based vulnerability detection baseline without local context retreival.
+    """
     def __init__(self, root: str, commit_list: List[str], transform=None):
         VulnerabilityDataset.__init__(self, root, commit_list, transform=transform)
         TorchGraphDataset.__init__(self, root, transform=transform)
@@ -108,6 +111,7 @@ class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
             if label == "skip":
                 continue
 
+            
             data = pickle.load(open(file, "rb"))
 
             cfg = DiGraph()
@@ -117,17 +121,25 @@ class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
                 cfg = disjoint_union(cfg, cpg.cfg)
 
             graph: Data = from_networkx(cfg)
-            statements = get_statements(graph)
-            graph.statements = statements
+            # statements = get_statements(graph)
+            # graph.statements = statements
             graph.label = label
             graph.commit = commit
-            graph.name = names
 
-            # TODO HACK For missing SRC and DST
-            if not hasattr(graph, "src"):
-                graph.src = names
-            if not hasattr(graph, "dst"):
-                graph.dst = names
+            nodes = []
+            for node in graph.node:
+                statements = []
+                for statement in node.statements:
+                    statements.append(str(statement))
+                nodes.append("\n".join(statements))
+
+            interact(locals())
+
+            del graph.src # This is just a different representation of the CFG
+            del graph.dst # Instead of using the src and dst of statements we use edge_index and nodes
+            
+            
+
 
             # Save the graph to the processed directory
             torch.save(graph, f"{self.processed_dir}/{self.project}_{commit}.pt")
@@ -187,8 +199,20 @@ class FunctionSourceCodeDataset(VulnerabilityDataset, TorchDataset):
         )
 
 
-def create_abstraction_dictionary(train_data):
-    pass
+def create_abstraction_dictionary(train_data) -> Dict[str, List]:
+    raw_occurrences: Dict[str, Set] = {
+        "datatype": set(),
+        "api": set(),
+        "constant": set(),
+        "operator": set(),
+    }
+    for graph in train_data:
+
+        pass
+
+    occurrences: Dict[str, List] = {k: list(v) for k, v in raw_occurrences.items()}
+
+    return occurrences
 
 
 def get_data_loader(project: str, commit_list: List[str], batch_size: int, shuffle: bool, train: bool):
@@ -222,6 +246,11 @@ class GraphDataModule(LightningDataModule):
     def prepare_data(self):
         pass
 
+    def map_into_abstractions(self, data, abstraction_dictionary):
+        """ """
+
+        pass
+
     def setup(self, stage=None):
         dataset = GraphDataset(root=self.project, commit_list=get_commits_from_cpg(self.project))
         total_size = len(dataset)
@@ -234,24 +263,25 @@ class GraphDataModule(LightningDataModule):
                 dataset,
                 [train_size, val_size, test_size],
             )
-
-        if stage == "fit" or stage is None:
-            self.train_data = self.train_data
-            self.val_data = self.val_data
             self.abstraction_dictionary = create_abstraction_dictionary(self.train_data)
 
-        if stage == "test" or stage is None:
-            self.test_data = self.test_data
-            pass
+        if stage == "fit":
+            self.train_data = self.map_into_abstractions(self.train_data, self.abstraction_dictionary)
+            self.val_data = self.map_into_abstractions(self.val_data, self.abstraction_dictionary)
+
+        if stage == "test":
+            self.test_data = self.map_into_abstractions(self.test_data, self.abstraction_dictionary)
 
     def train_dataloader(self):
         assert self.train_data is not None, "train_data is not set. Call setup() first."
         return TorchGraphDataLoader(self.train_data, batch_size=self.batch_size, shuffle=True)  # type: ignore
 
     def val_dataloader(self):
+        assert self.val_data is not None, "val_data is not set. Call setup() first."
         return TorchGraphDataLoader(self.val_data, batch_size=self.batch_size)  # type: ignore
 
     def test_dataloader(self):
+        assert self.test_data is not None, "test_data is not set. Call setup() first."
         return TorchGraphDataLoader(self.test_data, batch_size=self.batch_size)  # type: ignore
 
 
@@ -323,5 +353,16 @@ class FunctionSourceCodeDataModule(LightningDataModule):
 
     def train_dataloader(self):
         assert self.train_data is not None, "train_data is not set. Call setup() first."
-        loader = DataLoader(self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=1)
+        loader = DataLoader(self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=11)
         return loader
+
+    def val_dataloader(self):
+        assert self.val_data is not None, "val_data is not set. Call setup() first."
+        loader = DataLoader(self.val_data, batch_size=self.batch_size, shuffle=False, num_workers=11)
+        return loader
+
+    def test_dataloader(self):
+        assert self.test_data is not None, "test_data is not set. Call setup() first."
+        loader = DataLoader(self.test_data, batch_size=self.batch_size, shuffle=False, num_workers=11)
+        return loader
+
