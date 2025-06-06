@@ -3,13 +3,13 @@ import re
 from typing import Dict, List, Optional, Tuple
 import pygit2 as git
 import polars as pl
-from pyjoern import parse_source
+from pyjoern import parse_source # used to collect functions and their source code, NOT CPG's
 from src.utils import interact, ignore_file, get_diff, checkout_commit
 from networkx.drawing.nx_pydot import write_dot
 import pickle
 import os
 
-COMMIT_CPGS = Path("data/commit_cpgs")
+COMMIT_FILE_SC = Path("data/commit_file_sc")
 COMMIT_DIFF_SC = Path("data/commit_diff_sc")
 COMMIT_FUNCTION_SC = Path("data/commit_function_sc")
 TEST = True
@@ -52,38 +52,31 @@ def get_commit_scope(diff: git.Diff, project_name) -> Tuple[set, dict]:
     return files, lines
 
 
-def get_commit_file_cpgs(commit: str, project_dir: Path) -> List:
+def get_commit_file_sc(commit: str, project_dir: Path) -> Dict[str, List[Dict] | str]:
     """
-    Get the functions that are added/modified/deleted in the commit
-    If the commit is outside a function get the entire file.
+    Get the files that are added/modified/deleted in the commit
     """
-    # cfg is a graph of the given function.
-    # cfg contains in/out edges between blocks.
-    # Each block has a statement (source code line).
-    # Ex:
-    # >>> list(cpg['http_open_cnx_internal'].cfg.out_edges)[0][0].statements
-    # [<Return: return location_changed;,returnlocation_changed;>]
-    # Note: This currently filters to the CFG of the functions that are changed
     project_name = project_dir.name
     diff = get_diff(commit, project_dir)
     files, lines = get_commit_scope(diff, project_name)
-    cpgs = []
-
+    out_files = []
     for file in files:
-        # Get the CPG for the file
-        # Get the functions in the file
-        cfg = parse_source(project_dir / file)
-        for function_name, function in cfg.items():
-            if function.start_line is None or function.end_line is None:
-                continue
-            # Check if the function has changed lines, add if it does
-            if not lines[file].isdisjoint(set(range(function.start_line, function.end_line + 1))):
-                cpgs.append(function)
+        with open(project_dir / file, "r") as f:
+            out_files.append(
+                {
+                    "file": file,
+                    "commit": commit,
+                    "lines_of_code": f.read(),
+                }
+            )
 
-    return cpgs
+    return {
+        "type": "commit_file_sc",
+        "data": out_files,
+    }
 
 
-def get_commit_functions_sc(commit: str, project_dir: Path) -> List[Dict]:
+def get_commit_functions_sc(commit: str, project_dir: Path) -> Dict[str, List[Dict] | str]:
     """
     Get the functions that are added/modified/deleted in the commit
     This only returns the source code of the functions that have been changed in the commit. (Including unchanged lines within those functions)
@@ -119,10 +112,13 @@ def get_commit_functions_sc(commit: str, project_dir: Path) -> List[Dict]:
                             "lines_of_code": lines_of_code,
                         }
                     )
-    return functions
+    return {
+        "type": "commit_function_sc",
+        "data": functions,
+    }
 
 
-def get_commit_lines_sc(commit: str, project_dir: Path) -> List[Dict]:
+def get_commit_lines_sc(commit: str, project_dir: Path) -> Dict[str, List[Dict] | str]:
     project_name = project_dir.name
     diff = get_diff(commit, project_dir)
     files, lines = get_commit_scope(diff, project_name)
@@ -145,13 +141,15 @@ def get_commit_lines_sc(commit: str, project_dir: Path) -> List[Dict]:
                 "commit": commit,
                 "lines_of_code": lines[file],
             }
-     )
+        )
+
+    return {
+        "type": "commit_diff_sc",
+        "data": commits,
+    }
 
 
-    return commits
-
-
-def save_target(pickle_file: Path, target: List) -> None:
+def save_target(pickle_file: Path, target: Dict[str, List[Dict] | str]) -> None:
     # Pickle the cpgs to disk
     pickle.dump(target, open(pickle_file, "wb"))
 
@@ -171,7 +169,7 @@ def validate_structure() -> None:
     assert Path("data/qemu.csv").exists(), "qemu.csv file does not exist"
     os.makedirs("data/.cache", exist_ok=True)
     os.makedirs("data/.cache/figures", exist_ok=True)
-    os.makedirs(COMMIT_CPGS, exist_ok=True)
+    os.makedirs(COMMIT_FILE_SC, exist_ok=True)
     os.makedirs(COMMIT_DIFF_SC, exist_ok=True)
     os.makedirs(COMMIT_FUNCTION_SC, exist_ok=True)
 
@@ -196,7 +194,7 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
         label = row["vulnerability"]
 
         for target_name, get_target in [
-            ("commit_cpgs", get_commit_file_cpgs),
+            ("commit_file_sc", get_commit_file_sc),
             ("commit_function_sc", get_commit_functions_sc),  # TODO finsih
             ("commit_diff_sc", get_commit_lines_sc),
         ]:
@@ -216,6 +214,5 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
             # currently not all the same commits are skipped.
             save_target(data_dir / name, target_results)
             processed_commits.append((target_results, commit))
-
 
     return processed_commits

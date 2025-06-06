@@ -61,3 +61,36 @@ static int s337m_probe(AVProbeData *p)
     return 0;
 }
 """
+
+RESULT_A = {
+    '30064771076': {'constant': 2, 'api_call': 0, 'data_type': 2, 'operator': 0},
+    '30064771077': {'constant': 4, 'api_call': 0, 'data_type': 4, 'operator': 9},
+    '30064771079': {'constant': 2, 'api_call': 0, 'data_type': 4, 'operator': 6},
+    '30064771081': {'constant': 5, 'api_call': 5, 'data_type': 6, 'operator': 5},
+    '30064771084': {'constant': 3, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771085': {'constant': 0, 'api_call': 0, 'data_type': 5, 'operator': 5},
+    '30064771087': {'constant': 2, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771090': {'constant': 0, 'api_call': 0, 'data_type': 0, 'operator': 2},
+    '30064771091': {'constant': 9, 'api_call': 0, 'data_type': 2, 'operator': 10},
+    '30064771098': {'constant': 3, 'api_call': 0, 'data_type': 8, 'operator': 3},
+    '30064771103': {'constant': 0, 'api_call': 4, 'data_type': 0, 'operator': 0},
+    '30064771105': {'constant': 7, 'api_call': 4, 'data_type': 0, 'operator': 3},
+    '30064771108': {'constant': 0, 'api_call': 3, 'data_type': 0, 'operator': 0},
+    '30064771110': {'constant': 4, 'api_call': 3, 'data_type': 0, 'operator': 3},
+    '30064771115': {'constant': 2, 'api_call': 2, 'data_type': 0, 'operator': 4},
+    '30064771120': {'constant': 0, 'api_call': 0, 'data_type': 7, 'operator': 2},
+    '30064771122': {'constant': 5, 'api_call': 2, 'data_type': 0, 'operator': 4},
+    '30064771125': {'constant': 0, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771126': {'constant': 2, 'api_call': 0, 'data_type': 2, 'operator': 0},
+    '30064771127': {'constant': 2, 'api_call': 0, 'data_type': 0, 'operator': 8},
+    '30064771128': {'constant': 2, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771129': {'constant': 2, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771132': {'constant': 0, 'api_call': 0, 'data_type': 0, 'operator': 2},
+    '30064771133': {'constant': 0, 'api_call': 0, 'data_type': 0, 'operator': 7},
+    '30064771138': {'constant': 0, 'api_call': 0, 'data_type': 0, 'operator': 0},
+    '30064771147': {'constant': 8, 'api_call': 0, 'data_type': 5, 'operator': 0},
+    '30064771148': {'constant': 6, 'api_call': 0, 'data_type': 3, 'operator': 0},
+    '30064771149': {'constant': 0, 'api_call': 0, 'data_type': 3, 'operator': 0},
+    '30064771150': {'constant': 3, 'api_call': 6, 'data_type': 0, 'operator': 0}
+}
+

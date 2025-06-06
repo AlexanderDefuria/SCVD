@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "cpgqls-client>=0.0.9",
+    "graphviz>=0.20.3",
     "lightning[extra]>=2.5.1.post0",
     "llama-index>=0.12.40",
     "llama-index-retrievers-bm25>=0.5.2",

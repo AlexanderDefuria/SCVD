@@ -1,16 +1,18 @@
 import argparse
+from pathlib import Path
 from typing import List, Tuple
 
 from pytorch_lightning import Trainer, seed_everything
 
+from src import EXAMPLE_SC
 from src.utils import download, interact
 from src.preprocess import preprocess
 from src.dataset import FunctionSourceCodeDataModule, GraphDataModule
 from src.model import CodeBERTModel, GraphModel
-from src.graphml import NodeId, Abstraction, Mappings
+from src.graphml import NodeId, Abstraction, Mappings, run_graphml
 
 if __name__ == "__main__":
-    seed_everything(4343, workers=True)
+    seed_everything(1, workers=True)
     parser = argparse.ArgumentParser(description="Main script for the project.")
     parser.add_argument(
         "--project",
@@ -33,6 +35,7 @@ if __name__ == "__main__":
     commit_list: List[Tuple[str, str]] = preprocess(n=10)
     data_module = GraphDataModule(project=project, batch_size=10)
     # data_module = FunctionSourceCodeDataModule(project=project, batch_size=10)
+    exit()
 
     trainer = Trainer(
         fast_dev_run=False,

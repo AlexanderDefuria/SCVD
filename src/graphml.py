@@ -1,10 +1,19 @@
+from code import interact
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, TypeAlias
-from networkx.readwrite import read_graphml
-from networkx import MultiDiGraph
+from re import M
+from typing import Any, Dict, Iterable, List, Optional, TypeAlias
+from networkx.readwrite import graphml, read_graphml
+from networkx import DiGraph, MultiDiGraph, write_graphml
 from polars import DataFrame
 import networkx as nx
+import pickle
+import json
 import os
+
+from torch_geometric.data.data import BaseData
+from torch_geometric.utils import from_networkx
+
+from src import *
 
 NodeId: TypeAlias = str
 Abstraction: TypeAlias = Dict[str, str]
@@ -38,71 +47,6 @@ Example Node-Abstraction Dictionary:
 },
 """
 
-
-EXAMPLE_SC = """
-#define TEST 1
-
-int FF_ARRAY_ELEMS(int *arr) {
-    return sizeof(arr) / sizeof(arr[0]);
-}
-
-float x = 0.0f;
-
-int s337m_get_offset_and_codec(void *avctx, uint64_t state, int data_type, int data_size, int *offset, void *codec);
-
-char *str = "Hello, World!";
-char *str_two_elctric_boogaloo = NULL;
-int check = TEST;
-
-static int s337m_probe(AVProbeData *p)
-{
-    uint64_t state = 0;
-    int markers[3] = { 0 };
-    int i, pos, sum, max, data_type, data_size, offset;
-    uint8_t *buf;
-    int *test = (int*) malloc(4);
-    int a_test = 1;
-    float b_test = (float) a_test;
-
-    for (pos = 0; pos < p->buf_size; pos++) {
-        state = (state << 8) | p->buf[pos];
-        if (!IS_LE_MARKER(state))
-            continue;
-
-        buf = p->buf + pos + 1;
-        if (IS_16LE_MARKER(state)) {
-            data_type = AV_RL16(buf    );
-            data_size = AV_RL16(buf + 2);
-        } else {
-            data_type = AV_RL24(buf    );
-            data_size = AV_RL24(buf + 3);
-        }
-
-        if (s337m_get_offset_and_codec(NULL, state, data_type, data_size, &offset, NULL))
-            continue;
-
-        i = IS_16LE_MARKER(state) ? 0 : IS_20LE_MARKER(state) ? 1 : 2;
-        markers[i]++;
-
-        pos  += IS_16LE_MARKER(state) ? 4 : 6;
-        pos  += offset;
-        state = 0;
-    }
-
-    sum = max = 0;
-    for (i = 0; i < FF_ARRAY_ELEMS(markers); i++) {
-        sum += markers[i];
-        if (markers[max] < markers[i])
-            max = i;
-    }
-
-    if (markers[max] > 3 && markers[max] * 4 > sum * 3)
-        return AVPROBE_SCORE_EXTENSION + 1;
-
-    return 0;
-}
-"""
-
 traditional_assignment = (
     "<operator>.assignmentDivision",
     "<operator>.assignmentExponentiation",
@@ -128,7 +72,8 @@ increment_assignment = (
 
 all_assignment_types = traditional_assignment + increment_assignment
 
-def get_subgraph_from_edge_label(graph: MultiDiGraph, edge_label: str) -> MultiDiGraph:
+
+def get_subgraph_from_edge_label(graph: MultiDiGraph, edge_label: str) -> DiGraph:
     """
     Get a subgraph from the graph based on the edge label.
     :param graph: The input graph.
@@ -136,11 +81,11 @@ def get_subgraph_from_edge_label(graph: MultiDiGraph, edge_label: str) -> MultiD
     :return: A subgraph containing only the edges with the specified label.
     """
     edges = [(u, v, k) for u, v, k, d in graph.edges(data=True, keys=True) if d.get("labelE") == edge_label]
-    subgraph: MultiDiGraph = graph.edge_subgraph(edges)  # type: ignore
+    subgraph: DiGraph = graph.edge_subgraph(edges)  # type: ignore
     return subgraph
 
 
-def get_all_assignments(graph: MultiDiGraph) -> List:
+def get_all_assignments(graph: DiGraph) -> List:
     """
     Get all assignment nodes from the graph
     """
@@ -151,7 +96,7 @@ def get_all_assignments(graph: MultiDiGraph) -> List:
     return assignments
 
 
-def get_assignment_constituients(graph: MultiDiGraph, node: str) -> Abstraction:
+def get_assignment_constituients(graph: DiGraph, node: str) -> Abstraction:
     """
     BFS traversal to find the first constant, api_call, data_type, and operator based on the node descendants
     :param graph: The input graph.
@@ -212,10 +157,16 @@ def get_assignment_constituients(graph: MultiDiGraph, node: str) -> Abstraction:
     }
 
 
-def build_abstraction_mapping(abstraction_data: Dict[NodeId, Abstraction]) -> Mappings:
+def build_abstraction_mapping(cfg_with_assignments: DiGraph) -> Mappings:
     """
     Build a mapping of unique values for each column in the abstraction data based on their frequency.
     """
+    # Extract the abstraction data from the CFG
+    abstraction_data: Dict[NodeId, Abstraction] = {}
+    for node, data in cfg_with_assignments.nodes(data=True):
+        if "ABSTRACTION" in data:
+            abstraction_data[node] = data["ABSTRACTION"]
+
     assignments_df = DataFrame(
         list(abstraction_data.values()),
         schema=[
@@ -252,76 +203,165 @@ def apply_abstraction_mapping(mappings: Mappings, abstraction: Abstraction) -> D
     return {key: mappings[key].get(abstraction[key], 0) for key in abstraction.keys()}
 
 
-def parse_joern_cpg(file_path: Path) -> MultiDiGraph:
+def parse_joern_cpg(file_path: Path, project_commit: str) -> MultiDiGraph:
     """
     Parse the Joern CPG file and return a MultiDiGraph.
     :param file_path: The path to the Joern CPG file.
     :return: A MultiDiGraph representing the CPG.
     """
-    VERBOSE = " > /dev/null 2>&1"
-    os.system(f"joern-parse {file_path} --output {joern_cpg_bin} {VERBOSE}")
-    os.system(f"rm -rf {output_path}")
-    os.system(f"joern-export {joern_cpg_bin} --repr=all --format=graphml --out {output_path}{VERBOSE}")
-    return read_graphml(f"{output_path}/export.xml")
+    cpg_bin_path = JOERN_OUTPUT_CACHE / f"{project_commit}.cpg.bin"
+    export_dir = JOERN_OUTPUT_CACHE / project_commit
+    graphml_path = export_dir / "export.xml"
+    os.system(f"rm -rf {export_dir}")  # Clear the previous output for joern
+    os.system(f"joern-parse {file_path} --output {cpg_bin_path} {VERBOSE}")
+    os.system(f"joern-export {cpg_bin_path} --repr=all --format=graphml --out {export_dir}{VERBOSE}")
+    return read_graphml(f"{graphml_path}")
 
 
-if __name__ == "__main__":
-    root_dir = Path(__file__).parent.parent
-    assert root_dir.exists(), "Root directory does not exist"
-    assert root_dir.name == "SCVD", "Root directory name should be 'SCVD'"
-
-    cache_dir = root_dir / Path("data/.cache")
-    file_path = root_dir / Path("data/.cache/test.c")
-    joern_cpg_bin = root_dir / Path("data/.cache/test.cpg.bin")
-    output_path = root_dir / Path("data/.cache/out/")
-    name = "project_commit"
-    
-    os.makedirs(cache_dir, exist_ok=True)
-    if file_path.exists():
-        file_path.unlink()
-    if joern_cpg_bin.exists():
-        joern_cpg_bin.unlink()
-    
-    with open(file_path, "w") as f:
-        f.write(EXAMPLE_SC)
-        f.flush()
-        f.close()
-    
-    cpg = parse_joern_cpg(file_path)
-
+def extract_assignments(cpg: MultiDiGraph) -> DiGraph:
+    """
+    Extract assignments from the CPG and return a CFG with assignments.
+    :param cpg: The CPG to extract assignments from.
+    :return: A DiGraph representing the CFG with assignments.
+    """
     # Get CFG and AST from the graph based on the edge labels
-    ast: MultiDiGraph = get_subgraph_from_edge_label(cpg, "AST")
-    cfg: MultiDiGraph = get_subgraph_from_edge_label(cpg, "CFG")
-    
+    ast: DiGraph = get_subgraph_from_edge_label(cpg, "AST")
+    cfg: DiGraph = get_subgraph_from_edge_label(cpg, "CFG")
+
     # Get all assignment nodes from the CFG
     assignment_nodes = get_all_assignments(cfg)
-    assignment_node_data = [cfg.nodes[node] for node in assignment_nodes]
-    abstraction_data: Dict[NodeId, Abstraction] = {}
-    
-    for node, data in zip(assignment_nodes, assignment_node_data):
-        # descendant_nodes: List[NodeId] = list(nx.descendants_at_distance(ast, node, 1))
-        # descendant_nodes.sort(key=lambda x: ast.nodes[x].get("ARGUMENT_INDEX", 0))  # Sort by argument number (1 is the first argument)
-        abstraction_data[node] = get_assignment_constituients(ast, node)
-        # print(f"Node: {node}, Line: {data.get('LINE_NUMBER')}, Code: {data.get('CODE', 'N/A')}")
-        # print(f"Dict for node {node}: {abstraction_data[node]}\n\n")
-    
-    # for node, abstraction in abstraction_data.items():
-    # print(f"{cfg.nodes[node].get("CODE", 'N/A')} --> {abstraction}")
-    
-    mappings: Mappings = build_abstraction_mapping(abstraction_data)
+    for node in assignment_nodes:
+        cfg.nodes[node]["ABSTRACTION"] = get_assignment_constituients(ast, node)
+
+    return cfg
+
+
+def save_cfg_assignments(file_name: str, cfg: DiGraph) -> None:
+    """
+    Save the CFG to a file.
+    :param file_path: The path to the file where the graph will be saved.
+    :param cfg: The CFG to save.
+    """
+    file_path = JOERN_INTERMIDATE_GRAPH / Path(file_name)
+    assert str(file_path).endswith(".graphml"), f"File path must have a .graphml suffix..."
+
     for node in cfg.nodes:
-        # If node is in abstraction_data, replace the node data add the abstraction data as "ABSTRACTION"
-        # Otherwise set "ABSTRACTION" to default dict
-        if node in abstraction_data:
-            cfg.nodes[node]["ABSTRACTION"] = apply_abstraction_mapping(mappings, abstraction_data[node])
+        abstraction = cfg.nodes[node].get("ABSTRACTION")
+        if abstraction is not None:
+            cfg.nodes[node]["ABSTRACTION"] = json.dumps(abstraction)
+
+    write_graphml(cfg, file_path)
+
+
+def load_assignment_cfg(file_name: str) -> DiGraph:
+    """
+    Load a saved graph from a file.
+    :param file_path: The path to the saved graph file.
+    :return: A dictionary containing the CFG.
+    """
+    file_path = JOERN_INTERMIDATE_GRAPH / Path(file_name)
+    assert str(file_path).endswith(".graphml"), f"File path must have a .graphml suffix..."
+    assert file_path.exists(), "File does not exist"
+    output: DiGraph = read_graphml(file_path)
+
+    count = 0
+    for node in output.nodes:
+        abstraction = output.nodes[node].get("ABSTRACTION")
+        if abstraction is not None:
+            count += 1
+            output.nodes[node]["ABSTRACTION"] = json.loads(abstraction)
+            # TODO potentially find a way to handle serde errors here.
+
+    if count == 0:
+        raise Exception(
+            f"{file_name}: No assignments found in the graph. Abstraction mapping will not be applied. You are likely trying to run this on a graph that has not had the assignments extracted yet"
+        )
+    assert isinstance(output, DiGraph), f"Output should be a DiGraph now after serde: {type(output)}"
+    return output
+
+
+def apply_abstraction_mapping_to_graph(cfg: DiGraph, mappings: Mappings) -> None:
+    for node in cfg.nodes:
+        if cfg.nodes[node].get("ABSTRACTION") is not None:
+            cfg.nodes[node]["ABSTRACTION"] = apply_abstraction_mapping(mappings, cfg.nodes[node]["ABSTRACTION"])
             print(f"Node: {node}, Abstraction: {cfg.nodes[node]['ABSTRACTION']}")
         else:
-            # Non-assignment nodes will have an empty abstraction
+            # Non-assignment nodes will have an empty abstractionrwith a constant value of 1
             cfg.nodes[node]["ABSTRACTION"] = {
                 "constant": 1,
                 "api_call": 1,
                 "data_type": 1,
                 "operator": 1,
             }
-    
-    
+
+
+def cfg_to_pyg_data(cfg: DiGraph) -> BaseData:
+    for node in cfg.nodes:
+        abstraction = cfg.nodes[node].get("ABSTRACTION")
+        # Remove all attributes that are not part of the abstraction
+        for key in list(cfg.nodes[node].keys()):
+            if not key.startswith("ABSTRACTION"):
+                del cfg.nodes[node][key]
+
+        cfg.nodes[node]["ABSTRACTION"] = (
+            abstraction
+            if abstraction is not None
+            else {
+                "constant": 1,
+                "api_call": 1,
+                "data_type": 1,
+                "operator": 1,
+            }
+        )
+
+    return from_networkx(cfg)
+
+
+def write_code_to_temp_file(data: Dict[str, str], project_commit: str) -> Path:
+    """
+    Write data to a temporary file and return the file path.
+    :param data: The data to write to the file.
+    :param file_name: The name of the file to write to.
+    :return: The path to the temporary file.
+    """
+    # TODO CURRENTLY WE ARE APPENDING THE CODE SNIPPETS INTO A SINGLE FILE.
+    # TODO WE MAY WANT TO CHANGE THIS IN THE FUTURE TO HAVE A SEPARATE FILE FOR EACH SOURCE FILE.
+    temp_file_path = JOERN_OUTPUT_TEMP / f"{project_commit}_code.c"
+    with open(temp_file_path, "w") as temp_file:
+        for key, value in data.items():
+            temp_file.write(f"\n\n\n//--------{key}-------\n {value}\n")
+            temp_file.flush()
+        temp_file.close()
+    return temp_file_path
+
+
+def run_graphml(code_snippet: str) -> None:
+    """
+    Run the graphml process with the given code snippet.
+    THIS IS A TEST FUNCTION THAT WILL BE USED TO TEST THE GRAPHML PROCESSING.
+    Reminder to use the functions contained within this as appropriate in the datasets.
+
+    :param code_snippet: The code to test the process with.
+    """
+
+    assert ROOT_DIR.exists(), "Root directory does not exist"
+    assert ROOT_DIR.name == "SCVD", "Root directory name should be 'SCVD'"
+
+    project_commit = "sha_id"
+    code_snippets = {"test.c": code_snippet}
+    graph_name = f"{project_commit}.graphml"
+    file_path = write_code_to_temp_file(data=code_snippets, project_commit=project_commit)
+
+    # Creating the graph and getting all assignments
+    cpg: MultiDiGraph = parse_joern_cpg(file_path, project_commit)
+    cfg = extract_assignments(cpg)
+    save_cfg_assignments(graph_name, cfg)
+
+    # Building the abstraction mapping and applying it to the graph
+    cfg: DiGraph = load_assignment_cfg(graph_name)
+    mappings: Mappings = build_abstraction_mapping(cfg)
+    apply_abstraction_mapping_to_graph(cfg, mappings)
+
+
+if __name__ == "__main__":
+    run_graphml(EXAMPLE_SC)

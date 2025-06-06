@@ -1,6 +1,6 @@
+from multiprocessing import get_context
 from networkx.algorithms import union
 from networkx.algorithms.operators import disjoint_union
-from pyjoern.cfg.jil.statement import Statement
 from torch_geometric.data import (
     Data,
     Dataset as TorchGraphDataset,
@@ -11,9 +11,13 @@ from torch.utils.data import DataLoader, Dataset as TorchDataset, random_split
 from pytorch_lightning import LightningDataModule
 from torch_geometric.utils import from_networkx
 from torch_geometric.data.data import BaseData
-from networkx import DiGraph
+from networkx import DiGraph, MultiDiGraph
 from pathlib import Path
 from typing import Any, Dict, List, Set
+from src import VERBOSE
+from src.graphml import cfg_to_pyg_data, extract_assignments, load_assignment_cfg, parse_joern_cpg, run_graphml, save_cfg_assignments, write_code_to_temp_file
+from tqdm import tqdm
+import polars as pl
 import pickle
 import torch
 import glob
@@ -34,26 +38,11 @@ def get_commits_from_cpg(project: str) -> List[str]:
     Get the commits from the cpg directory.
     """
     commits = []
-    for file in os.listdir(data_path() / "commit_cpgs"):
+    for file in os.listdir(data_path() / "commit_file_sc"):
         if file.endswith(".pkl") and file.startswith(project) and "skip" not in file:
             commit = file.split("_")[1]
             commits.append(commit)
     return commits
-
-
-def get_statements(graph: Data) -> List[Statement]:
-    """
-    Get the statements from the graph
-    """
-    statements = []
-    try:
-        for node in graph.node:
-            if str(node.__class__) == "<class 'pyjoern.cfg.jil.block.Block'>":
-                statements.extend(node.statements)
-        return statements
-    except Exception as e:
-        print(f"Error getting statements: {e}")
-        return []
 
 
 class VulnerabilityDataset(abc.ABC):
@@ -68,6 +57,7 @@ class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
     Graph Dataset for loading the commit graphs. Note this is not for the RL portion of this project,
     simply for the graph-based vulnerability detection baseline without local context retreival.
     """
+
     def __init__(self, root: str, commit_list: List[str], transform=None):
         VulnerabilityDataset.__init__(self, root, commit_list, transform=transform)
         TorchGraphDataset.__init__(self, root, transform=transform)
@@ -85,13 +75,13 @@ class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
 
     @property
     def raw_dir(self) -> str:
-        return str(data_path() / "commit_cpgs")
+        return str(data_path() / "commit_file_sc")
 
     @property
     def raw_paths(self) -> List[str]:
         """The absolute raw paths that must be present to skip downloading."""
         return [
-            str(data_path() / "commit_cpgs" / f"{self.project}_{commit}.pkl")
+            str(data_path() / "commit_file_sc" / f"{self.project}_{commit}.pkl")
             for commit in get_data(self.project)["sha_id"].to_list()
             # The Raw commit list. Note some of these are skipped.
         ]
@@ -100,55 +90,51 @@ class GraphDataset(VulnerabilityDataset, TorchGraphDataset):
     def raw_file_names(self):
         # Raw data is stored in the raw directory
         # return [f"{self.project}_{commit}.pt" for commit in self.commit_list]
-        return glob.glob(os.path.join(self.raw_dir, f"{self.project}_*_*.pkl"))
+        raw_files = glob.glob(os.path.join(self.raw_dir, f"{self.project}_*_*.pkl"))
+        raw_files = [file for file in raw_files if "skip" not in file]
+        return raw_files
 
     def process(self):
+        """
+        Write to disk for joern, parse CPG, get assignments, build abstraction dict.
+        Abstractions are actually applied in the dataloader
+        """
         print(f"Processing {self.project} dataset")
-        for file in self.raw_file_names:
-            # Load the altered function CFG's from the pickle file
-            commit = file.split("/")[-1].split("_")[1].split(".")[0]
-            label = file.split("/")[-1].split("_")[2].split(".")[0]
-            if label == "skip":
-                continue
+        os.makedirs(self.processed_dir, exist_ok=True)
+        pickle_files = self.raw_file_names
+        df = pl.DataFrame()
+        for file in tqdm(pickle_files, desc="Loading commits", disable=VERBOSE != ""):
+            df.vstack(
+                pl.DataFrame(
+                    pickle.load(open(file, "rb"))["data"],
+                    schema=[("commit", str), ("file", str), ("lines_of_code", str)],
+                ),
+                in_place=True,
+            )
+            df.rechunk()
 
-            
-            data = pickle.load(open(file, "rb"))
+        for row in tqdm(df.iter_rows(named=True), desc="Processing commits", disable=VERBOSE != ""):
+            commit = row["commit"]
+            file = row["file"]
+            lines_of_code = row["lines_of_code"]
+            data = {file: lines_of_code}
+            project_commit = f"{self.project}_{commit}"
+            graph_name = f"{project_commit}.graphml"
 
-            cfg = DiGraph()
-            names = []
-            for cpg in data:
-                names.append(cpg.cfg.name)  # TODO CONFIRM THIS WORKS.
-                cfg = disjoint_union(cfg, cpg.cfg)
+            temp_file = write_code_to_temp_file(data, project_commit)
+            cpg: MultiDiGraph = parse_joern_cpg(temp_file, project_commit)
+            cfg: DiGraph = extract_assignments(cpg)
+            save_cfg_assignments(graph_name, cfg)
+            cfg = load_assignment_cfg(graph_name)
+            pyg_data: BaseData = cfg_to_pyg_data(cfg)
 
-            graph: Data = from_networkx(cfg)
-            # statements = get_statements(graph)
-            # graph.statements = statements
-            graph.label = label
-            graph.commit = commit
+            torch.save(pyg_data, f"{self.processed_dir}/{self.project}_{commit}.pt")
+            print(f"Saved {self.project}_{commit}.pt")
 
-            nodes = []
-            for node in graph.node:
-                statements = []
-                for statement in node.statements:
-                    statements.append(str(statement))
-                nodes.append("\n".join(statements))
-
-            interact(locals())
-
-            del graph.src # This is just a different representation of the CFG
-            del graph.dst # Instead of using the src and dst of statements we use edge_index and nodes
-            
-            
-
-
-            # Save the graph to the processed directory
-            torch.save(graph, f"{self.processed_dir}/{self.project}_{commit}.pt")
-
-    def map_into_dictionary(self):
-        pass
+        print(f"Loaded {len(df)} commits from {self.project} dataset in graph")
 
     def len(self) -> int:
-        return len(self.commit_list)
+        return len(self.processed_file_names)
 
     def get(self, idx) -> BaseData:
         commit = self.commit_list[idx]
@@ -365,4 +351,3 @@ class FunctionSourceCodeDataModule(LightningDataModule):
         assert self.test_data is not None, "test_data is not set. Call setup() first."
         loader = DataLoader(self.test_data, batch_size=self.batch_size, shuffle=False, num_workers=11)
         return loader
-

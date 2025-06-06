@@ -258,7 +258,7 @@ wheels = [
 
 [[package]]
 name = "cfgutils"
-version = "1.14.0"
+version = "1.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "graphviz" },
@@ -267,9 +267,9 @@ dependencies = [
     { name = "pygraphviz" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/cd/9e6894ce6e19fc6ec6b9c4a7f61b6ab1cac3dcf856713d8bff4bb4415402/cfgutils-1.14.0.tar.gz", hash = "sha256:508c92271108dc1151d2a554343bfaa42baafd42d2485adbd15f721d0aab9e64", size = 62826, upload-time = "2025-04-15T23:57:08.55Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/b3/a5988ed6819e47e04d5573563bd65853df1b27d3274af746b7dbaaaeacff/cfgutils-1.15.1.tar.gz", hash = "sha256:290bcac6e6d69eb5138537b5e20c737c5280cb01c2cdd93709f439f2b65889d2", size = 63092, upload-time = "2025-05-22T19:05:45.723Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/33/a25358d420a8904c8e06cd0d4f067e68edd64d47600d5dc8a211ec608088/cfgutils-1.14.0-py3-none-any.whl", hash = "sha256:4ab7e03922ba882185c7d10311c589890c99d28b13a40020ef08d36ca7934ef5", size = 67314, upload-time = "2025-04-15T23:57:07.495Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/84/fc9cf7ea612102114a76b931b382d7d2ac520cc22e804704b3b672ca8c02/cfgutils-1.15.1-py3-none-any.whl", hash = "sha256:3ef68dc41157d653e01897703b5a9b2a85162012d85d43a70a69baa99b8d21b2", size = 67703, upload-time = "2025-05-22T19:05:44.393Z" },
 ]
 
 [[package]]
@@ -2254,6 +2254,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "cpgqls-client" },
+    { name = "graphviz" },
     { name = "lightning", extra = ["extra"] },
     { name = "llama-index" },
     { name = "llama-index-retrievers-bm25" },
@@ -2282,6 +2283,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cpgqls-client", specifier = ">=0.0.9" },
+    { name = "graphviz", specifier = ">=0.20.3" },
     { name = "lightning", extras = ["extra"], specifier = ">=2.5.1.post0" },
     { name = "llama-index", specifier = ">=0.12.40" },
     { name = "llama-index-retrievers-bm25", specifier = ">=0.5.2" },
