@@ -13,10 +13,6 @@ os.makedirs(JOERN_OUTPUT_TEMP, exist_ok=True)
 os.makedirs(JOERN_INTERMIDATE_GRAPH, exist_ok=True)
 
 
-
-
-
-
 EXAMPLE_SC = """
 #define TEST 1
 

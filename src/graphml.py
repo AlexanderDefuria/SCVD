@@ -157,18 +157,20 @@ def get_assignment_constituients(graph: DiGraph, node: str) -> Abstraction:
     }
 
 
-def build_abstraction_mapping(cfg_with_assignments: DiGraph) -> Mappings:
-    """
-    Build a mapping of unique values for each column in the abstraction data based on their frequency.
-    """
-    # Extract the abstraction data from the CFG
+def get_abstraction_dictionary(cfg_with_assignments: DiGraph) -> Dict[NodeId, Abstraction]:
     abstraction_data: Dict[NodeId, Abstraction] = {}
     for node, data in cfg_with_assignments.nodes(data=True):
         if "ABSTRACTION" in data:
             abstraction_data[node] = data["ABSTRACTION"]
+    return abstraction_data
 
+
+def build_abstraction_mapping(abstraction_dict) -> Mappings:
+    """
+    Build a mapping of unique values for each column in the abstraction data based on their frequency.
+    """
     assignments_df = DataFrame(
-        list(abstraction_data.values()),
+        list(abstraction_dict.values()),
         schema=[
             ("constant", str),
             ("api_call", str),
@@ -307,10 +309,10 @@ def cfg_to_pyg_data(cfg: DiGraph) -> BaseData:
             abstraction
             if abstraction is not None
             else {
-                "constant": 1,
-                "api_call": 1,
-                "data_type": 1,
-                "operator": 1,
+                "constant": None,
+                "api_call": None,
+                "data_type": None,
+                "operator": None,
             }
         )
 
@@ -359,7 +361,8 @@ def run_graphml(code_snippet: str) -> None:
 
     # Building the abstraction mapping and applying it to the graph
     cfg: DiGraph = load_assignment_cfg(graph_name)
-    mappings: Mappings = build_abstraction_mapping(cfg)
+    abstraction_dict: Dict[NodeId, Abstraction] = get_abstraction_dictionary(cfg)
+    mappings: Mappings = build_abstraction_mapping(abstraction_dict)
     apply_abstraction_mapping_to_graph(cfg, mappings)
 
 

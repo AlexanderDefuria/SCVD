@@ -3,7 +3,9 @@ import re
 from typing import Dict, List, Optional, Tuple
 import pygit2 as git
 import polars as pl
-from pyjoern import parse_source # used to collect functions and their source code, NOT CPG's
+from pyjoern import parse_source
+from tqdm import tqdm  # used to collect functions and their source code, NOT CPG's
+from src import VERBOSE
 from src.utils import interact, ignore_file, get_diff, checkout_commit
 from networkx.drawing.nx_pydot import write_dot
 import pickle
@@ -61,14 +63,17 @@ def get_commit_file_sc(commit: str, project_dir: Path) -> Dict[str, List[Dict] |
     files, lines = get_commit_scope(diff, project_name)
     out_files = []
     for file in files:
-        with open(project_dir / file, "r") as f:
-            out_files.append(
-                {
-                    "file": file,
-                    "commit": commit,
-                    "lines_of_code": f.read(),
-                }
-            )
+        try:
+            with open(project_dir / file, "r") as f:
+                out_files.append(
+                    {
+                        "file": file,
+                        "commit": commit,
+                        "lines_of_code": f.read(),
+                    }
+                )
+        except UnicodeDecodeError:
+            continue
 
     return {
         "type": "commit_file_sc",
@@ -99,19 +104,22 @@ def get_commit_functions_sc(commit: str, project_dir: Path) -> Dict[str, List[Di
             if not lines[file].isdisjoint(set(range(function.start_line, function.end_line + 1))):
                 file_path = Path(__file__).parent.parent / "data" / "repo" / project_name / file
                 with open(file_path, "r") as f:
-                    source_code = f.read()
-                    # Get the lines of code in the function
-                    lines_of_code = source_code.splitlines()[function.start_line - 1 : function.end_line]
-                    functions.append(
-                        {
-                            "name": function_name,
-                            "commit": commit,
-                            "file": file,
-                            "start_line": function.start_line,
-                            "end_line": function.end_line,
-                            "lines_of_code": lines_of_code,
-                        }
-                    )
+                    try:
+                        source_code = f.read()
+                        # Get the lines of code in the function
+                        lines_of_code = source_code.splitlines()[function.start_line - 1 : function.end_line]
+                        functions.append(
+                            {
+                                "name": function_name,
+                                "commit": commit,
+                                "file": file,
+                                "start_line": function.start_line,
+                                "end_line": function.end_line,
+                                "lines_of_code": lines_of_code,
+                            }
+                        )
+                    except UnicodeDecodeError:
+                        continue
     return {
         "type": "commit_function_sc",
         "data": functions,
@@ -128,20 +136,23 @@ def get_commit_lines_sc(commit: str, project_dir: Path) -> Dict[str, List[Dict] 
     for file in files:
         line_numbers = lines[file]
         source_code = ""
-        with open(project_dir / file, "r") as f:
-            source_code = f.read()
-            # Get the lines of code in the function
-            lines_of_code = source_code.splitlines()
-            # Get the lines that are changed in the commit
-            lines[file] = [lines_of_code[line - 1] for line in line_numbers]
+        try:
+            with open(project_dir / file, "r") as f:
+                source_code = f.read()
+                # Get the lines of code in the function
+                lines_of_code = source_code.splitlines()
+                # Get the lines that are changed in the commit
+                lines[file] = [lines_of_code[line - 1] for line in line_numbers]
 
-        commits.append(
-            {
-                "file": file,
-                "commit": commit,
-                "lines_of_code": lines[file],
-            }
-        )
+            commits.append(
+                {
+                    "file": file,
+                    "commit": commit,
+                    "lines_of_code": lines[file],
+                }
+            )
+        except UnicodeDecodeError:
+            continue
 
     return {
         "type": "commit_diff_sc",
@@ -178,7 +189,7 @@ def get_data(project: str) -> pl.DataFrame:
     return pl.read_csv(f"data/{project}.csv")
 
 
-def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
+def preprocess(n: Optional[int] = None) -> List[str]:
     validate_structure()
     project = "ffmpeg"
     devign = get_data(project)
@@ -188,10 +199,11 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
     n = n if n is not None else len(devign)
     processed_commits = []
 
-    for row in devign[:n].iter_rows(named=True):
+    for row in tqdm(devign[:n].iter_rows(named=True), desc=f"Processing {project} commits", total=min(n, len(devign))):
         commit = row["sha_id"]
         project = row["project"]
         label = row["vulnerability"]
+        to_save = []
 
         for target_name, get_target in [
             ("commit_file_sc", get_commit_file_sc),
@@ -203,16 +215,18 @@ def preprocess(n: Optional[int] = None) -> List[Tuple[str, str]]:
             if (data_dir / name).exists() or (data_dir / skip_name).exists():
                 continue
 
-            print(f"Processing {commit} {label}")
+            if not VERBOSE:
+                print(f"Processing {commit} {target_name} {label}")
             checkout_commit(commit, project_dir)
             target_results = get_target(commit, project_dir)
-            if len(target_results) == 0:
+            if len(target_results.get("data", [])) == 0:
                 os.system(f"touch {data_dir / skip_name}")
                 continue
 
-            # TODO Ensure that we leave with the same set of commits for each process.
-            # currently not all the same commits are skipped.
-            save_target(data_dir / name, target_results)
-            processed_commits.append((target_results, commit))
+            to_save.append((data_dir / name, target_results))
+        if len(to_save) == 3:
+            for target_file, target_results in to_save:
+                save_target(target_file, target_results)
+            processed_commits.append(commit)
 
     return processed_commits

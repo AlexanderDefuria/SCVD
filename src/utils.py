@@ -84,7 +84,8 @@ def ignore_file(file: Path) -> bool:
     # TODO Update the filter based on ICVul Extension Filter.
     filename = file.name
     if not (filename.endswith(".c") or filename.endswith(".cpp") or filename.endswith(".h")):
-        print(f"Ignoring file: {filename}")
+        if VERBOSE != " > /dev/null 2>&1":
+            print(f"Ignoring file: {filename}")
         return True
     return False
 
